@@ -67,11 +67,23 @@ def register_middleware(app: FastAPI, settings: Settings) -> None:
         )
         return response
 
+    dev_loopback_regex = (
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+        if settings.app_env == "development"
+        else None
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
+        allow_origin_regex=settings.cors_allow_origin_regex or dev_loopback_regex,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-ID"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Correlation-ID",
+        ],
         expose_headers=["X-Correlation-ID"],
     )

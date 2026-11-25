@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     cors_allow_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:8080", "http://127.0.0.1:8080"]
     )
+    cors_allow_origin_regex: str | None = None
     max_request_body_bytes: int = 12_582_912
 
     s3_endpoint_url: str = "http://localhost:9000"

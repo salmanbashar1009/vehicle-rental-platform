@@ -1,0 +1,1 @@
+"""Event-driven notifications module."""

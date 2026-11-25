@@ -1,0 +1,98 @@
+name: VeloFleet CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  line-limit-and-specs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check 200-line ceiling across repository
+        run: python backend/scripts/check_line_limits.py
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: velofleet
+          POSTGRES_PASSWORD: velofleet_ci_password
+          POSTGRES_DB: velofleet_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U velofleet -d velofleet_test"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://velofleet:velofleet_ci_password@localhost:5432/velofleet_test
+      REDIS_URL: redis://localhost:6379/1
+      JWT_SECRET_KEY: ci_test_only_secret_key_at_least_32_bytes_long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: alembic upgrade head
+      - run: ruff check app tests scripts
+      - run: mypy app
+      - run: bandit -r app -q
+      - run: pytest -v
+
+  customer-website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: customer-website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart run build_runner build
+      - run: dart analyze
+      - run: dart test
+
+  admin-dashboard:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: admin-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  driver-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: driver-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

@@ -1,6 +1,7 @@
+import 'dart:convert';
+
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:jaspr_router/jaspr_router.dart';
 
 import '../../components/ui/ui_primitives.dart';
 import '../../core/auth/auth_session.dart';
@@ -9,6 +10,10 @@ import '../../core/data/default_catalog.dart';
 import '../../core/http/api_client.dart';
 import '../../core/http/api_error.dart';
 import '../../core/models/booking_models.dart';
+import '../../core/web/browser_nav.dart';
+import 'booking_confirmation_page.dart';
+import 'booking_guest_fields.dart';
+import 'booking_payload_builder.dart';
 import 'booking_stop_fields.dart';
 
 /// Multi-stop Booking / Quote Request Wizard supporting all 8 service types.
@@ -23,8 +28,10 @@ class BookingWizardPage extends StatefulComponent {
 }
 
 class _BookingWizardPageState extends State<BookingWizardPage> {
-  late String _serviceSlug = component.initialService ?? 'airport_transfer';
-  late final String _idempotencyKey = generateUuidV4();
+  late String _serviceSlug =
+      ServiceCatalogReference.findBySlug(component.initialService ?? '')?.slug ?? 'airport_transfer';
+  String? _lastPayloadJson;
+  String _idempotencyKey = generateUuidV4();
   String _pickupAddress = '';
   String _destinationAddress = '';
   final List<String> _waypoints = [];
@@ -39,18 +46,38 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
   final Map<String, String> _extraMeta = {};
   bool _submitting = false;
   String? _error;
+  BookingDto? _confirmedBooking;
 
   Future<void> _submit() async {
-    if (_pickupAddress.trim().isEmpty || _destinationAddress.trim().isEmpty) {
-      setState(() => _error = 'Pickup and destination addresses are required.');
+    final auth = CustomerAuthStore.instance;
+    final Map<String, dynamic> payload;
+    try {
+      payload = buildBookingRequestPayload(
+        serviceSlug: _serviceSlug,
+        preferredVehicleId: component.initialVehicleId,
+        pickupAtRaw: _pickupAt,
+        expectedEndAtRaw: _expectedEndAt,
+        passengersRaw: _passengers,
+        luggageRaw: _luggage,
+        pickupAddress: _pickupAddress,
+        destinationAddress: _destinationAddress,
+        waypoints: _waypoints,
+        extraMeta: _extraMeta,
+        notes: _notes,
+        isAuthenticated: auth.isAuthenticated,
+        customerName: _customerName,
+        customerEmail: _customerEmail,
+        customerPhone: _customerPhone,
+      );
+    } on FormatException catch (e) {
+      setState(() => _error = e.message);
       return;
     }
-    final auth = CustomerAuthStore.instance;
-    if (!auth.isAuthenticated &&
-        (_customerName.trim().isEmpty ||
-            (_customerEmail.trim().isEmpty && _customerPhone.trim().isEmpty))) {
-      setState(() => _error = 'Please provide your name and email or phone number.');
-      return;
+
+    final payloadJson = jsonEncode(payload);
+    if (_lastPayloadJson != payloadJson) {
+      _lastPayloadJson = payloadJson;
+      _idempotencyKey = generateUuidV4();
     }
 
     setState(() {
@@ -59,36 +86,18 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
     });
 
     try {
-      final stops = [
-        {'stop_type': 'pickup', 'address': _pickupAddress.trim()},
-        for (final wp in _waypoints)
-          if (wp.trim().isNotEmpty) {'stop_type': 'waypoint', 'address': wp.trim()},
-        {'stop_type': 'destination', 'address': _destinationAddress.trim()},
-      ];
       final res = await auth.api.post(
         '/bookings',
         idempotencyKey: _idempotencyKey,
-        body: {
-          'service_slug': _serviceSlug,
-          if (component.initialVehicleId != null) 'preferred_vehicle_id': component.initialVehicleId,
-          'pickup_at': '$_pickupAt:00Z',
-          'expected_end_at': '$_expectedEndAt:00Z',
-          'passenger_count': int.tryParse(_passengers) ?? 1,
-          'luggage_count': int.tryParse(_luggage) ?? 0,
-          'service_metadata_json': _extraMeta,
-          if (_notes.trim().isNotEmpty) 'special_instructions': _notes.trim(),
-          'stops': stops,
-          if (!auth.isAuthenticated) ...{
-            'customer_name': _customerName.trim(),
-            if (_customerEmail.trim().isNotEmpty) 'customer_email': _customerEmail.trim(),
-            if (_customerPhone.trim().isNotEmpty) 'customer_phone': _customerPhone.trim(),
-          },
-        },
+        body: payload,
       ) as Map<String, dynamic>;
       final created = BookingDto.fromJson(res);
-      if (mounted) {
-        Router.of(context).push('/booking/confirmation/${created.reference}');
-      }
+      if (!mounted) return;
+      setState(() {
+        _confirmedBooking = created;
+        _submitting = false;
+      });
+      navigateTo(context, '/booking/confirmation/${created.reference}');
     } on ApiError catch (e) {
       setState(() {
         _error = '${e.message}${e.correlationId != null ? ' (Ref: ${e.correlationId})' : ''}';
@@ -96,7 +105,7 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
       });
     } catch (_) {
       setState(() {
-        _error = 'Unable to submit booking request. Please try again.';
+        _error = 'Unable to submit booking request. Please check your connection and try again.';
         _submitting = false;
       });
     }
@@ -104,6 +113,9 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
 
   @override
   Component build(BuildContext context) {
+    if (_confirmedBooking != null) {
+      return BookingConfirmationPage(reference: _confirmedBooking!.reference);
+    }
     final svc = ServiceCatalogReference.findBySlug(_serviceSlug) ??
         ServiceCatalogReference.categories.first;
     final auth = CustomerAuthStore.instance;
@@ -113,7 +125,7 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
         div(classes: 'vf-card', [
           h1([Component.text('Request a Booking or Quotation')]),
           p(classes: 'vf-muted', [
-            Component.text('Every request receives a unique reference and availability verification.'),
+            Component.text('Every request receives an instant booking confirmation reference and availability check.'),
           ]),
           if (_error != null) ErrorBanner(message: _error!),
           div(classes: 'vf-grid-2', [
@@ -135,7 +147,7 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
               label(classes: 'vf-label', htmlFor: 'bk-pax', [Component.text('Passengers / Luggage')]),
               div(styles: Styles(display: Display.flex, gap: Gap.all(10.px)), [
                 input(id: 'bk-pax', classes: 'vf-input', type: InputType.number, value: _passengers, onInput: (v) => _passengers = v.toString()),
-                input(classes: 'vf-input', type: InputType.number, value: _luggage, onInput: (v) => _luggage = v.toString()),
+                input(id: 'bk-lug', classes: 'vf-input', type: InputType.number, value: _luggage, onInput: (v) => _luggage = v.toString()),
               ]),
             ]),
             div(classes: 'vf-field', [
@@ -154,8 +166,8 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
             onPickupChanged: (v) => _pickupAddress = v,
             onDestinationChanged: (v) => _destinationAddress = v,
             onAddWaypoint: () => setState(() => _waypoints.add('')),
-            onRemoveWaypoint: (i) => setState(() => _waypoints.removeAt(i)),
-            onUpdateWaypoint: (i, v) => _waypoints[i] = v,
+            onRemoveWaypoint: (idx) => setState(() => _waypoints.removeAt(idx)),
+            onUpdateWaypoint: (idx, v) => _waypoints[idx] = v,
           ),
           for (final fieldName in svc.extraFields)
             div(classes: 'vf-field', [
@@ -163,25 +175,19 @@ class _BookingWizardPageState extends State<BookingWizardPage> {
               input(classes: 'vf-input', value: _extraMeta[fieldName] ?? '', onInput: (v) => _extraMeta[fieldName] = v.toString()),
             ]),
           if (!auth.isAuthenticated)
-            div(classes: 'vf-grid-3', [
-              div(classes: 'vf-field', [
-                label(classes: 'vf-label', [Component.text('Your Name')]),
-                input(classes: 'vf-input', value: _customerName, onInput: (v) => _customerName = v.toString()),
-              ]),
-              div(classes: 'vf-field', [
-                label(classes: 'vf-label', [Component.text('Email')]),
-                input(classes: 'vf-input', type: InputType.email, value: _customerEmail, onInput: (v) => _customerEmail = v.toString()),
-              ]),
-              div(classes: 'vf-field', [
-                label(classes: 'vf-label', [Component.text('Phone')]),
-                input(classes: 'vf-input', value: _customerPhone, onInput: (v) => _customerPhone = v.toString()),
-              ]),
-            ]),
+            BookingGuestContactSection(
+              name: _customerName,
+              email: _customerEmail,
+              phone: _customerPhone,
+              onNameChanged: (v) => _customerName = v,
+              onEmailChanged: (v) => _customerEmail = v,
+              onPhoneChanged: (v) => _customerPhone = v,
+            ),
           div(classes: 'vf-field', [
-            label(classes: 'vf-label', [Component.text('Special Requirements & Notes')]),
-            textarea(classes: 'vf-textarea', onInput: (v) => _notes = v, [Component.text(_notes)]),
+            label(classes: 'vf-label', htmlFor: 'bk-notes', [Component.text('Special Requirements & Notes')]),
+            textarea(id: 'bk-notes', classes: 'vf-textarea', onInput: (v) => _notes = v, [Component.text(_notes)]),
           ]),
-          button(classes: 'vf-btn vf-btn--primary', disabled: _submitting, onClick: _submit, [
+          button(classes: 'vf-btn vf-btn--primary', type: ButtonType.button, disabled: _submitting, onClick: _submit, [
             Component.text(_submitting ? 'Submitting Request...' : 'Submit Booking Request'),
           ]),
         ]),

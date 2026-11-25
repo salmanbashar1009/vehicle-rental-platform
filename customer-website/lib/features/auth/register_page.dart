@@ -1,11 +1,11 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:jaspr_router/jaspr_router.dart';
 
 import '../../components/ui/ui_primitives.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/config/app_config.dart';
 import '../../core/http/api_error.dart';
+import '../../core/web/browser_nav.dart';
 
 /// Customer Registration page.
 @client
@@ -40,7 +40,7 @@ class _RegisterPageState extends State<RegisterPage> {
         phone: _phone,
         password: _password,
       );
-      if (mounted) Router.of(context).push('/dashboard');
+      if (mounted) navigateTo(context, '/dashboard');
     } on ApiError catch (e) {
       setState(() {
         _error = e.message;

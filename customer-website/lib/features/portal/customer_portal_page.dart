@@ -7,6 +7,7 @@ import '../../core/auth/auth_session.dart';
 import '../../core/config/app_config.dart';
 import '../../core/http/api_error.dart';
 import '../../core/models/booking_models.dart';
+import '../../core/web/browser_nav.dart';
 
 /// Authenticated Customer Dashboard & Booking History view.
 @client
@@ -26,7 +27,11 @@ class _CustomerPortalPageState extends State<CustomerPortalPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    if (kIsWeb) {
+      _load();
+    } else {
+      _loading = false;
+    }
   }
 
   Future<void> _load() async {
@@ -86,7 +91,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage> {
                 classes: 'vf-btn vf-btn--outline',
                 onClick: () async {
                   await auth.logout();
-                  if (mounted) Router.of(context).push('/');
+                  if (mounted) navigateTo(context, '/');
                 },
                 [Component.text('Sign Out')],
               ),

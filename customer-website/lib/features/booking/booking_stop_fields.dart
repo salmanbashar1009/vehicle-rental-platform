@@ -47,6 +47,7 @@ class BookingStopsSection extends StatelessComponent {
             ),
             button(
               classes: 'vf-btn vf-btn--outline',
+              type: ButtonType.button,
               onClick: () => onRemoveWaypoint(i),
               [Component.text('Remove')],
             ),
@@ -54,6 +55,7 @@ class BookingStopsSection extends StatelessComponent {
         ]),
       button(
         classes: 'vf-btn vf-btn--outline',
+        type: ButtonType.button,
         onClick: onAddWaypoint,
         [Component.text('+ Add Intermediate Stop')],
       ),

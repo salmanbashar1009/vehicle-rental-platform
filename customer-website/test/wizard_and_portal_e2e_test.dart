@@ -9,6 +9,7 @@ import 'package:velofleet_customer_web/core/http/api_client.dart';
 import 'package:velofleet_customer_web/features/auth/login_page.dart';
 import 'package:velofleet_customer_web/features/auth/register_page.dart';
 import 'package:velofleet_customer_web/features/booking/booking_confirmation_page.dart';
+import 'package:velofleet_customer_web/features/booking/booking_payload_builder.dart';
 import 'package:velofleet_customer_web/features/booking/booking_wizard_page.dart';
 import 'package:velofleet_customer_web/features/portal/customer_booking_detail_page.dart';
 import 'package:velofleet_customer_web/features/portal/customer_portal_page.dart';
@@ -86,6 +87,56 @@ void main() {
 
       tester.pumpComponent(const BookingConfirmationPage(reference: 'VF-2026-1010'));
       expect(find.text('VF-2026-1010'), findsOneComponent);
+      expect(find.text('Booking Request Confirmed & Queued'), findsOneComponent);
+      expect(find.text('+ Submit Another Request'), findsOneComponent);
+    });
+
+    test('buildBookingRequestPayload normalizes timestamps, stops, and guest validation', () {
+      expect(normalizeUtcIsoTimestamp('2026-12-01T09:00'), '2026-12-01T09:00:00Z');
+      expect(normalizeUtcIsoTimestamp('2026-12-01T09:00:30'), '2026-12-01T09:00:30Z');
+      expect(normalizeUtcIsoTimestamp('2026-12-01T09:00:00Z'), '2026-12-01T09:00:00Z');
+
+      final payload = buildBookingRequestPayload(
+        serviceSlug: 'airport_transfer',
+        pickupAtRaw: '2026-12-01T09:00',
+        expectedEndAtRaw: '2026-12-01T13:00',
+        passengersRaw: '2',
+        luggageRaw: '3',
+        pickupAddress: 'JFK Terminal 4',
+        destinationAddress: 'Midtown Hotel',
+        waypoints: const ['Queens Plaza', ''],
+        extraMeta: const {'flight_number': 'BA117', 'terminal': ''},
+        notes: 'Meet at exit',
+        isAuthenticated: false,
+        customerName: 'Test Guest',
+        customerEmail: 'guest@example.com',
+        customerPhone: '',
+      );
+      expect(payload['pickup_at'], '2026-12-01T09:00:00Z');
+      expect(payload['stops'], hasLength(3));
+      expect(payload['service_metadata_json'], {'flight_number': 'BA117'});
+      expect(payload['customer_name'], 'Test Guest');
+      expect(payload.containsKey('customer_phone'), isFalse);
+
+      expect(
+        () => buildBookingRequestPayload(
+          serviceSlug: 'airport_transfer',
+          pickupAtRaw: '2026-12-01T13:00',
+          expectedEndAtRaw: '2026-12-01T09:00',
+          passengersRaw: '2',
+          luggageRaw: '1',
+          pickupAddress: 'A',
+          destinationAddress: 'B',
+          waypoints: const [],
+          extraMeta: const {},
+          notes: '',
+          isAuthenticated: false,
+          customerName: 'Test Guest',
+          customerEmail: 'guest@example.com',
+          customerPhone: '',
+        ),
+        throwsFormatException,
+      );
     });
 
     testComponents('Auth & Portal pages render expected forms and booking detail states', (

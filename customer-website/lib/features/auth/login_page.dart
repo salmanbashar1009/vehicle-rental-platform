@@ -6,6 +6,7 @@ import '../../components/ui/ui_primitives.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/config/app_config.dart';
 import '../../core/http/api_error.dart';
+import '../../core/web/browser_nav.dart';
 
 /// Customer Sign-In page.
 @client
@@ -29,7 +30,7 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       await CustomerAuthStore.instance.login(identifier: _identifier, password: _password);
-      if (mounted) Router.of(context).push('/dashboard');
+      if (mounted) navigateTo(context, '/dashboard');
     } on ApiError catch (e) {
       setState(() {
         _error = e.message;
